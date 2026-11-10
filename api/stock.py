@@ -196,6 +196,24 @@ def _research(info, cal, hist, trend, spx):
     return {k: v for k, v in r.items() if v is not None}, next_earn
 
 
+def _latest_close(df):
+    """(date, price) of the most recent daily close."""
+    if df is None or len(df) == 0 or 'Close' not in df.columns:
+        return None
+    s = df['Close'].dropna()
+    return (s.index[-1].date(), float(s.iloc[-1])) if len(s) else None
+
+
+def _add_latest(lines, latest, monthly=False):
+    """Yahoo sometimes leaves out the current week (or month). Add today's close as its own row when missing."""
+    if not lines or not latest:
+        return lines
+    d, p = latest
+    newest = dt.date.fromisoformat(lines.split('\n', 1)[0].split('\t')[0])
+    missing = (d.year, d.month) > (newest.year, newest.month) if monthly else (d - newest).days >= 7
+    return f'{d.isoformat()}\t{round(p, 4)}\n{lines}' if missing else lines
+
+
 # ---------------------------------------------------------------- main entry points
 def _cached(key, fn):
     now = time.time()
@@ -214,6 +232,7 @@ def get_stock(symbol):
     jobs = {
         'weekly': lambda: _history(symbol, '1y', '1wk'),
         'monthly': lambda: _history(symbol, '5y', '1mo'),
+        'daily': lambda: _history(symbol, '5d', '1d'),
         'expiries': lambda: list(yf.Ticker(symbol).options),
         'info': lambda: yf.Ticker(symbol).info,
         'calendar': lambda: yf.Ticker(symbol).calendar,
@@ -232,7 +251,9 @@ def get_stock(symbol):
                 res[k] = None
                 errors[k] = str(e)[:200]
 
-    weekly, monthly = _history_lines(res['weekly']), _history_lines(res['monthly'])
+    latest = _latest_close(res.get('daily'))
+    weekly = _add_latest(_history_lines(res['weekly']), latest)
+    monthly = _add_latest(_history_lines(res['monthly']), latest, monthly=True)
     if not weekly:
         return 404, {'error': f'No price history found for {symbol}. Check the ticker symbol.', 'details': errors}
     price = float(weekly.split('\n')[0].split('\t')[1])
