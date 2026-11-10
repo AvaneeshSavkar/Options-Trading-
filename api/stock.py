@@ -209,9 +209,12 @@ def _quote(symbol):
     t = yf.Ticker(symbol)
     df = t.history(period='5d', interval='1d', auto_adjust=False, actions=False)
     meta = getattr(t, 'history_metadata', None) or {}
-    p, ts = _num(meta.get('regularMarketPrice')), _num(meta.get('regularMarketTime'))
-    if p and ts:
-        return dt.datetime.fromtimestamp(ts - 5 * 3600, dt.timezone.utc).date(), p  # New York trading date
+    p, ts = _num(meta.get('regularMarketPrice')), meta.get('regularMarketTime')
+    if p and ts is not None:
+        if hasattr(ts, 'date'):  # yfinance gives a Timestamp in the exchange's time zone
+            return ts.date(), p
+        if _num(ts):  # raw seconds: shift to New York time for the trading date
+            return dt.datetime.fromtimestamp(_num(ts) - 5 * 3600, dt.timezone.utc).date(), p
     return _latest_close(df)
 
 
