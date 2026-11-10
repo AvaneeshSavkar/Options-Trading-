@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Option Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a trading-desk tool. Verdict and tiles on top, inputs beside the price-path chart, then the analysis, then research. */
+:root {
+  --bg: #eef0f3; --surface: #ffffff; --surface-2: #f6f7f9; --ink: #14171c; --ink-2: #4a5160; --muted: #7b8290;
+  --line: #dde1e7; --grid: #e8eaee; --accent: #b9521c; --accent-ink: #ffffff;
+  --data: #2a78d6; --band-in: #9ec5f4; --band-out: #d9e8fb;
+  --good: #0f7a2f; --good-bg: #e2f3e6; --warn: #8a5a00; --warn-bg: #fff2d1; --bad: #b42323; --bad-bg: #fbe3e3; --neutral-bg: #eceef2;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 10px; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f13; --surface: #161a20; --surface-2: #1c2129; --ink: #eceef2; --ink-2: #b6bdc9; --muted: #8b929f;
+    --line: #2a303a; --grid: #232831; --accent: #e27b3f; --accent-ink: #120b06;
+    --data: #3987e5; --band-in: #1c5cab; --band-out: #173a63;
+    --good: #4cc46a; --good-bg: #13301c; --warn: #f2b53a; --warn-bg: #352a10; --bad: #f07272; --bad-bg: #3a1618; --neutral-bg: #232831;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f13; --surface: #161a20; --surface-2: #1c2129; --ink: #eceef2; --ink-2: #b6bdc9; --muted: #8b929f;
+  --line: #2a303a; --grid: #232831; --accent: #e27b3f; --accent-ink: #120b06;
+  --data: #3987e5; --band-in: #1c5cab; --band-out: #173a63;
+  --good: #4cc46a; --good-bg: #13301c; --warn: #f2b53a; --warn-bg: #352a10; --bad: #f07272; --bad-bg: #3a1618; --neutral-bg: #232831;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.5; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.num, .tile .big, td.n, .mono { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+a { color: var(--data); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar-inner { max-width: 1240px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.brand { display: flex; flex-direction: column; margin-right: auto; }
+.brand h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.search { display: flex; gap: 8px; align-items: center; }
+.search input[type=text] { width: 120px; text-transform: uppercase; font-family: var(--font-num); font-size: 16px; font-weight: 600; }
+.btn { white-space: nowrap; font: inherit; font-size: 14px; font-weight: 600; border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+
+main { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; gap: 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.card h2 .step { font-family: var(--font-num); font-size: 12px; color: var(--accent); font-weight: 600; }
+.card .lede { color: var(--ink-2); font-size: 13.5px; margin: 0 0 14px; max-width: 70ch; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.grid-main { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 980px) { .grid2, .grid-main { grid-template-columns: minmax(0, 1fr); } }
+
+/* verdict + tiles */
+.verdict { display: grid; grid-template-columns: 8px 1fr; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
+.verdict .stripe { background: var(--muted); }
+.verdict.good .stripe { background: var(--good); } .verdict.warn .stripe { background: var(--warn); } .verdict.bad .stripe { background: var(--bad); }
+.verdict .body { padding: 16px 20px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+.verdict .tag { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; background: var(--neutral-bg); color: var(--ink-2); }
+.verdict.good .tag { background: var(--good-bg); color: var(--good); } .verdict.warn .tag { background: var(--warn-bg); color: var(--warn); } .verdict.bad .tag { background: var(--bad-bg); color: var(--bad); }
+.verdict .headline { font-size: 18px; font-weight: 600; flex: 1 1 420px; }
+.verdict .sub { flex-basis: 100%; color: var(--ink-2); font-size: 13.5px; }
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1100px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .label { font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+.tile .big { font-size: 26px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
+.tile .foot { font-size: 12.5px; color: var(--muted); }
+
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--neutral-bg); color: var(--ink-2); white-space: nowrap; }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.chip.good { background: var(--good-bg); color: var(--good); } .chip.warn { background: var(--warn-bg); color: var(--warn); } .chip.bad { background: var(--bad-bg); color: var(--bad); }
+.chip.plain::before { display: none; }
+
+/* forms */
+label.f { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+input[type=text], input[type=number], input[type=date], select, textarea {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; min-width: 0; }
+textarea { font-family: var(--font-num); font-size: 12px; height: 92px; resize: vertical; }
+input:focus, select:focus, textarea:focus { border-color: var(--data); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--data) 22%, transparent); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fields .wide { grid-column: 1 / -1; }
+.hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.status { font-size: 12.5px; margin-top: 4px; }
+.block { display: grid; gap: 10px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.block:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.block h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+/* charts */
+.chart { width: 100%; position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.axis text, .lbl { fill: var(--muted); font-size: 11px; font-family: var(--font-ui); }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.baseline { stroke: var(--line); stroke-width: 1; }
+.band-out { fill: var(--band-out); } .band-in { fill: var(--band-in); }
+.median { stroke: var(--data); stroke-width: 2; fill: none; }
+.hist { stroke: var(--ink); stroke-width: 2; fill: none; }
+.ref { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.ref.be { stroke: var(--accent); }
+.ref-lbl { font-size: 11px; font-weight: 600; fill: var(--ink-2); font-family: var(--font-ui); }
+.ref-lbl.be { fill: var(--accent); }
+.bar { fill: var(--data); } .bar.zero { fill: var(--muted); } .bar:hover { opacity: 0.8; }
+.cross { stroke: var(--muted); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); white-space: nowrap; display: none; z-index: 5; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+.legend i.line { height: 2px; vertical-align: 3px; }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-weight: 600; color: var(--ink-2); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th.n, td.n { text-align: right; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.scroll { overflow-x: auto; }
+
+/* meters */
+.meter { position: relative; height: 10px; border-radius: 6px; display: grid; overflow: hidden; margin: 8px 0 4px; }
+.meter span { display: block; height: 100%; }
+.meter-wrap { position: relative; }
+.marker { position: absolute; top: -3px; width: 3px; height: 16px; background: var(--ink); border-radius: 2px; transform: translateX(-1px); }
+.meter-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: var(--font-num); }
+.row-k { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13.5px; }
+.row-k .k { color: var(--ink-2); }
+.desc { font-size: 13px; color: var(--ink-2); margin: 6px 0 0; }
+.frame { padding: 12px 0; border-top: 1px solid var(--line); }
+.frame:first-of-type { border-top: 0; padding-top: 4px; }
+.frame-h { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 4px; }
+.frame-h b { font-size: 14px; }
+
+/* research */
+.rs-summary { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+.rs-bar { flex: 1 1 200px; height: 8px; background: var(--neutral-bg); border-radius: 6px; overflow: hidden; }
+.rs-bar span { display: block; height: 100%; background: var(--data); }
+.rs-groups { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 28px; }
+@media (max-width: 980px) { .rs-groups { grid-template-columns: minmax(0, 1fr); } }
+.rs-group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin: 14px 0 4px; }
+.rs-item { display: grid; grid-template-columns: minmax(0, 1fr) 128px 64px; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--grid); }
+.rs-item .q { font-size: 13.5px; font-weight: 600; }
+.rs-item .w { font-size: 12px; color: var(--muted); }
+.rs-item details { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+.rs-item details summary { font-size: 12px; font-weight: 500; color: var(--data); }
+.rs-item .auto { font-family: var(--font-num); font-size: 13px; padding: 7px 0; color: var(--ink); }
+.score { justify-self: end; margin-top: 5px; }
+.db { color: var(--bad); font-weight: 600; font-size: 11px; }
+[hidden] { display: none !important; }
+.src { font-size: 10.5px; font-weight: 600; color: var(--data); border: 1px solid color-mix(in srgb, var(--data) 40%, transparent); border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+.live-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--good); margin-left: 6px; }
+.live-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.verdict.loading .stripe { background: var(--data); }
+footer { max-width: 1240px; margin: 0 auto; padding: 8px 20px 40px; color: var(--muted); font-size: 12.5px; }
+.notice { font-size: 12.5px; color: var(--ink-2); background: var(--surface-2); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; }
+@media (prefers-reduced-motion: no-preference) { .rs-bar span, .marker { transition: all 0.25s ease; } }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="brand"><h1>Option Simulator</h1><span>LEAPS call check built on Suresh Nair's model<span class="live-pill" id="livePill" hidden>Live Yahoo data</span></span></div>
+  <form class="search" id="searchForm">
+    <label for="ticker" class="hint">Ticker</label>
+    <input type="text" id="ticker" maxlength="8" autocomplete="off" spellcheck="false" placeholder="NVDA">
+    <button class="btn primary" type="submit" id="goBtn">Set up</button>
+  </form>
+  <button class="btn" id="loadExample" type="button">Load MSFT example</button>
+  <button class="btn" id="clearAll" type="button">New stock</button>
+</div></div>
+
+<main>
+  <section class="verdict" id="verdict" aria-live="polite"><div class="stripe"></div><div class="body">
+    <span class="tag" id="vTag">Verdict</span><div class="headline" id="vHead"></div><div class="sub" id="vSub"></div></div></section>
+
+  <section class="tiles" id="tiles" aria-label="Key numbers"></section>
+
+  <div class="grid-main">
+    <section class="card" id="inputs" aria-labelledby="inH">
+      <h2 id="inH"><span class="step">STEP 1</span>Your inputs</h2>
+      <p class="lede" id="inLede">Open Yahoo Finance with the links below and paste the tables.</p>
+      <div class="block">
+        <h3>Price history</h3>
+        <div class="links" id="yLinks"></div>
+        <label class="f" for="weekly">Weekly prices, 1 year <span class="hint">Historical Data, Frequency: Weekly, 1Y. Paste the whole table.</span></label>
+        <textarea id="weekly" spellcheck="false" placeholder="Date  Open  High  Low  Close  Adj Close  Volume"></textarea>
+        <div class="status" id="wStatus"></div>
+        <label class="f" for="monthly">Monthly prices, 5 years <span class="hint">Same page, Frequency: Monthly, 5Y.</span></label>
+        <textarea id="monthly" spellcheck="false" placeholder="Date  Open  High  Low  Close  Adj Close  Volume"></textarea>
+        <div class="status" id="mStatus"></div>
+      </div>
+      <div class="block">
+        <h3>The option (one row of the Yahoo option chain)</h3>
+        <div class="fields" id="chainPick" hidden>
+          <label class="f wide" for="expSel">Expiry in the chain<select id="expSel"></select></label>
+          <label class="f wide" for="strikeSel">Strike in the chain<select id="strikeSel"></select></label>
+          <div class="hint wide" id="chainNote"></div>
+        </div>
+        <div class="fields">
+          <label class="f" for="expiry">Expiry date<input type="date" id="expiry"></label>
+          <label class="f" for="strike">Strike ($)<input type="number" id="strike" min="0" step="0.5" inputmode="decimal"></label>
+          <label class="f" for="price">Price you'd pay ($)<input type="number" id="price" min="0" step="0.01" inputmode="decimal"></label>
+          <label class="f" for="oi">Open interest<input type="number" id="oi" min="0" step="1" inputmode="numeric"></label>
+          <label class="f" for="bid">Bid ($)<input type="number" id="bid" min="0" step="0.01" inputmode="decimal"></label>
+          <label class="f" for="ask">Ask ($)<input type="number" id="ask" min="0" step="0.01" inputmode="decimal"></label>
+          <label class="f wide" for="rf">Risk-free rate (%) <span class="hint">2-year Treasury yield. On Yahoo, search 2YY=F.</span><input type="number" id="rf" min="0" max="25" step="0.01" inputmode="decimal"></label>
+        </div>
+        <div class="hint" id="strikeHint"></div>
+      </div>
+      <details class="block">
+        <summary>Your rules</summary>
+        <div class="fields" style="margin-top:10px">
+          <label class="f" for="hW">Weekly hurdle (x)<input type="number" id="hW" min="1" step="0.5"></label>
+          <label class="f" for="hM">Monthly hurdle (x)<input type="number" id="hM" min="1" step="0.5"></label>
+          <label class="f" for="sL">Stretch limit (x)<input type="number" id="sL" min="1" step="0.5"></label>
+          <label class="f" for="rN">Research score needed (%)<input type="number" id="rN" min="0" max="100" step="5"></label>
+        </div>
+        <p class="hint">10x weekly is from the video. 5x monthly and the 3x stretch limit are untested starting points.</p>
+      </details>
+    </section>
+
+    <div style="display:grid; gap:18px; min-width:0">
+      <section class="card" aria-labelledby="fanH">
+        <h2 id="fanH">Price history and 1,000 simulated paths</h2>
+        <p class="lede" id="fanLede">The past year of weekly prices, then where Suresh's simulation sends the stock until expiry if last year's trend and volatility continue.</p>
+        <div class="chart" id="fanChart"></div>
+        <div class="legend"><span><i class="line" style="background:var(--ink)"></i>Actual price</span><span><i class="line" style="background:var(--data)"></i>Median path</span><span><i style="background:var(--band-in)"></i>Middle half of paths</span><span><i style="background:var(--band-out)"></i>80% of paths</span><span><i class="line" style="background:var(--accent)"></i>Break-even</span><span><i class="line" style="background:var(--muted)"></i>Strike</span></div>
+      </section>
+      <section class="card" aria-labelledby="histH">
+        <h2 id="histH">What the option is worth at expiry</h2>
+        <p class="lede" id="histLede"></p>
+        <div class="chart" id="histChart"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <section class="card" aria-labelledby="confH">
+      <h2 id="confH"><span class="step">HOW SURE</span>Confidence and volatility</h2>
+      <p class="lede">Confidence asks whether the past trend is strong enough for your hurdle beyond luck. Volatility explains how wide that uncertainty is.</p>
+      <div id="confBody"></div>
+    </section>
+    <section class="card" aria-labelledby="wmH">
+      <h2 id="wmH"><span class="step">COMPARE</span>Weekly versus monthly</h2>
+      <p class="lede">One hot year can make the weekly number huge. The 5-year monthly check shows whether the trend has lasted.</p>
+      <div id="wmBody"></div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card" aria-labelledby="beH">
+      <h2 id="beH"><span class="step">WHAT IT NEEDS</span>Break-even and required growth</h2>
+      <p class="lede">The growth per year the stock needs for each outcome. Compare it with the revenue and earnings growth in your research.</p>
+      <div id="beBody"></div>
+    </section>
+    <section class="card" aria-labelledby="scH">
+      <h2 id="scH"><span class="step">WHAT IF</span>Growth scenarios</h2>
+      <p class="lede">The same option under different growth assumptions, held to expiry. Your research decides which row to believe.</p>
+      <div class="fields" style="margin-bottom:10px"><label class="f" for="myGrowth">Your growth estimate per year (%)<input type="number" id="myGrowth" step="1" inputmode="decimal" placeholder="e.g. 25"></label></div>
+      <div class="scroll" id="scBody"></div>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="bsH">
+    <h2 id="bsH"><span class="step">FAIR PRICE</span>Market-neutral check</h2>
+    <p class="lede">What the option is worth with no trend assumed (Black-Scholes, using the stock's own volatility and the risk-free rate). The gap between this and the model's multiplier is the bet on momentum.</p>
+    <div id="bsBody"></div>
+  </section>
+
+  <section class="card" aria-labelledby="rsH">
+    <h2 id="rsH"><span class="step">STEP 2</span>Research scorecard</h2>
+    <p class="lede">The model is only the start. Green is 2 points, yellow 1, red 0; blank items are skipped. The first five fill in from your inputs.</p>
+    <div class="rs-summary" id="rsSummary"></div>
+    <div class="rs-groups" id="rsGroups"></div>
+  </section>
+</main>
+<footer>
+  <p>Built from Suresh Nair's options tutorial and spreadsheet. The headline multipliers are exact averages of his simulation, so they do not change between visits; the charts show one 1,000-path run. Inputs are saved in this browser only. This applies your own rules to the numbers you enter. It is not investment advice.</p>
+</footer>
+
+<script>
+// Option Simulator engine: Suresh Nair's model plus the v5 extensions. Pure functions, no DOM.
+(function (root) {
+  'use strict';
+  const DAY = 86400000;
+  const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+  // ---------- parsing a pasted Yahoo table (web copy or CSV, full table or Date + Adj Close) ----------
+  function parsePrices(text) {
+    const out = [];
+    const seen = new Set();
+    const reMon = /^\s*([A-Z][a-z]{2})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})/;
+    const reISO = /^\s*(\d{4})-(\d{2})-(\d{2})/;
+    const reUS = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/;
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      if (!raw.trim() || /dividend|split/i.test(raw)) continue;
+      let m, t = null, rest = '';
+      if ((m = raw.match(reMon)) && MONTHS[m[1]] != null) { t = Date.UTC(+m[3], MONTHS[m[1]], +m[2]); rest = raw.slice(m[0].length); }
+      else if ((m = raw.match(reISO))) { t = Date.UTC(+m[1], +m[2] - 1, +m[3]); rest = raw.slice(m[0].length); }
+      else if ((m = raw.match(reUS))) { t = Date.UTC(+m[3], +m[1] - 1, +m[2]); rest = raw.slice(m[0].length); }
+      else continue;
+      let fields;
+      if (rest.includes('\t')) fields = rest.split('\t');
+      else if (/^\s*,/.test(rest)) fields = rest.split(',');
+      else fields = rest.trim().split(/\s+/);
+      const nums = fields.map(f => f.replace(/[$,\s]/g, '')).filter(f => f !== '' && !isNaN(+f)).map(Number);
+      if (!nums.length) continue;
+      const adj = nums.length >= 5 ? nums[4] : nums[0];
+      if (!(adj > 0) || seen.has(t)) continue;
+      seen.add(t);
+      out.push({ t, p: adj });
+    }
+    out.sort((a, b) => b.t - a.t);       // newest first
+    return out;
+  }
+
+  // ---------- statistics of the ratios ----------
+  function ratioStats(prices, perYear) {
+    const r = [];
+    for (let i = 0; i + 1 < prices.length; i++) r.push(prices[i].p / prices[i + 1].p);
+    const n = r.length;
+    if (n < 2) return null;
+    const mean = r.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(r.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+    return { n, mean, sd, trend: Math.pow(mean, perYear) - 1, vol: sd * Math.sqrt(perYear),
+             latest: prices[0].p, latestT: prices[0].t, oldestT: prices[prices.length - 1].t };
+  }
+
+  // ---------- special functions ----------
+  function erfc(x) {                       // Numerical Recipes erfcc, |error| < 1.2e-7
+    const z = Math.abs(x), t = 1 / (1 + 0.5 * z);
+    const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 +
+      t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+    return x >= 0 ? r : 2 - r;
+  }
+  const normCdf = x => 0.5 * erfc(-x / Math.SQRT2);
+  function lgamma(x) {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+    let y = x, tmp = x + 5.5; tmp -= (x + 0.5) * Math.log(tmp);
+    let ser = 1.000000000190015;
+    for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+  }
+  function betacf(a, b, x) {
+    const MAXIT = 200, EPS = 3e-14, FPMIN = 1e-300;
+    let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN; d = 1 / d; let h = d;
+    for (let m = 1; m <= MAXIT; m++) {
+      const m2 = 2 * m;
+      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN; c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN; d = 1 / d; h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN; c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN; d = 1 / d;
+      const del = d * c; h *= del; if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  }
+  function betai(a, b, x) {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;
+  }
+  function tCdf(t, df) {
+    const tail = 0.5 * betai(df / 2, 0.5, df / (df + t * t));
+    return t > 0 ? 1 - tail : tail;
+  }
+  function tInv(p, df) {                  // one-sided quantile, p in (0.5, 1)
+    let lo = 0, hi = 60;
+    for (let i = 0; i < 100; i++) { const mid = (lo + hi) / 2; (tCdf(mid, df) < p ? (lo = mid) : (hi = mid)); }
+    return (lo + hi) / 2;
+  }
+  function bisect(f, lo, hi, target, iters = 80) {   // f increasing
+    const flo = f(lo), fhi = f(hi);
+    if (!(isFinite(flo) && isFinite(fhi))) return null;
+    if (target < flo) return { value: lo, below: true };
+    if (target > fhi) return { value: hi, above: true };
+    for (let i = 0; i < iters; i++) { const mid = (lo + hi) / 2; (f(mid) > target ? (hi = mid) : (lo = mid)); }
+    return { value: (lo + hi) / 2 };
+  }
+
+  // ---------- the model in closed form: weekly (or monthly) ratio ~ Normal(m, s), N steps ----------
+  function closedForm(S, K, P, N, m, s) {
+    if (!(S > 0 && K > 0 && P > 0 && N >= 1 && m > 0 && s > 0)) return null;
+    const v = N * Math.log(1 + (s / m) ** 2), mu = N * Math.log(m) - v / 2, sig = Math.sqrt(v);
+    const d2 = (Math.log(S / K) + mu) / sig;
+    const ev = S * Math.pow(m, N) * normCdf(d2 + sig) - K * normCdf(d2);
+    const at = z => Math.max(0, S * Math.exp(mu + z * sig) - K);
+    return { ev, mult: ev / P, median: at(0), p10: at(-1.2815516), p90: at(1.2815516),
+             pAbove: normCdf(d2), pProfit: normCdf((Math.log(S / (K + P)) + mu) / sig), mu, sig,
+             priceQ: z => S * Math.exp(mu + z * sig) };
+  }
+  const multAtGrowth = (S, K, P, N, s, perYear) => g => {
+    if (g <= -1) return 0;
+    const r = closedForm(S, K, P, N, Math.pow(1 + g, 1 / perYear), s);
+    return r ? r.mult : NaN;
+  };
+
+  // ---------- one time frame: exact result + statistics ----------
+  function analyzeFrame(prices, perYear, opt, hurdle) {
+    const st = ratioStats(prices, perYear);
+    if (!st) return null;
+    const S = opt.S, K = opt.strike, P = opt.price;
+    const days = (opt.expiry - opt.asof) / DAY;
+    const N = Math.round(perYear === 52 ? days / 7 : days / (365.25 / 12));
+    const out = { st, N };
+    if (!(N >= 1 && K > 0 && P > 0 && S > 0)) return out;
+    const cf = closedForm(S, K, P, N, st.mean, st.sd);
+    out.cf = cf;
+    const se = st.sd / Math.sqrt(st.n), df = st.n - 1, tc = tInv(0.975, df);
+    const mLo = st.mean - tc * se, mHi = st.mean + tc * se;
+    out.trendLo = Math.pow(Math.max(mLo, 1e-9), perYear) - 1;
+    out.trendHi = Math.pow(mHi, perYear) - 1;
+    out.multLo = mLo > 0 ? (closedForm(S, K, P, N, mLo, st.sd) || {}).mult : 0;
+    out.multHi = (closedForm(S, K, P, N, mHi, st.sd) || {}).mult;
+    out.pUp = 1 - tCdf((st.mean - 1) / se, df);
+    const f = multAtGrowth(S, K, P, N, st.sd, perYear);
+    const req = bisect(f, -0.9, 20, hurdle);
+    out.reqGrowth = req;
+    if (req && !req.above && !req.below) {
+      const mReq = Math.pow(1 + req.value, 1 / perYear);
+      out.pHurdle = 1 - tCdf((st.mean - mReq) / se, df);
+    } else if (req && req.below) out.pHurdle = 0; else out.pHurdle = 1;
+    out.confidence = 1 - out.pHurdle;
+    return out;
+  }
+
+  // ---------- simulation (Suresh's method) for charts and the noise check ----------
+  function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function simulate(S, m, s, N, paths, seed) {
+    const rnd = mulberry32(seed || 1);
+    const norm = () => { let u = 0; while (u === 0) u = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd()); };
+    const steps = Array.from({ length: N + 1 }, () => new Float64Array(paths));
+    for (let j = 0; j < paths; j++) {
+      let x = S; steps[0][j] = x;
+      for (let k = 1; k <= N; k++) { x = x * (m + s * norm()); steps[k][j] = x; }
+    }
+    const qs = [0.1, 0.25, 0.5, 0.75, 0.9];
+    const bands = steps.map(col => { const c = Array.from(col).sort((a, b) => a - b); return qs.map(q => c[Math.min(paths - 1, Math.floor(q * paths))]); });
+    return { terminal: Array.from(steps[N]), bands, sample: [0, 1, 2, 3, 4].map(j => steps.map(col => col[j])) };
+  }
+
+  // ---------- Black-Scholes check ----------
+  function blackScholes(S, K, T, r, v) {
+    if (!(S > 0 && K > 0 && T > 0 && v > 0) || !isFinite(r)) return null;
+    const d1 = (Math.log(S / K) + (r + v * v / 2) * T) / (v * Math.sqrt(T)), d2 = d1 - v * Math.sqrt(T);
+    return S * normCdf(d1) - K * Math.exp(-r * T) * normCdf(d2);
+  }
+  function impliedVol(S, K, T, r, price) {
+    const res = bisect(v => blackScholes(S, K, T, r, v), 0.01, 5, price);
+    return res && !res.above && !res.below ? res.value : null;
+  }
+
+  // ---------- descriptions ----------
+  function confidenceBand(c) {
+    if (c == null || !isFinite(c)) return null;
+    if (c < 0.5) return { key: 'below', label: 'Below the hurdle', text: 'The trend is not strong enough for your hurdle, even before luck is considered.' };
+    if (c < 0.7) return { key: 'weak', label: 'Weak (50 to 70%)', text: 'Barely passing. The pass could easily be luck in the data. Lean toward skipping or waiting.' };
+    if (c < 0.85) return { key: 'solid', label: 'Solid (70 to 85%)', text: 'A real trend, typical of a strong year. Reasonable if the research is strong too.' };
+    if (c < 0.95) return { key: 'strong', label: 'Strong (85 to 95%)', text: 'A strong trend that is also steady.' };
+    return { key: 'significant', label: 'Significant (95%+)', text: 'Statistically significant. Rare with one year of weekly data.' };
+  }
+  function volatilityBand(v) {
+    if (v == null || !isFinite(v)) return null;
+    if (v < 0.25) return { key: 'low', label: 'Low', text: 'Moves like a large, steady company. Trends are easier to pin down, so confidence ranges are narrow.' };
+    if (v < 0.45) return { key: 'moderate', label: 'Moderate', text: 'Normal for a growth stock. Expect 10 to 20% swings in a bad stretch.' };
+    if (v < 0.8) return { key: 'high', label: 'High', text: 'Big swings are routine. The trend is harder to pin down, so confidence ranges are wide and the simulation is noisier.' };
+    return { key: 'extreme', label: 'Extreme', text: 'One wild year can produce a huge multiplier. Treat big numbers with suspicion and lean on the monthly check.' };
+  }
+  function pattern(wM, mM, hW, hM, stretchLimit) {
+    if (!(isFinite(wM) && isFinite(mM))) return null;
+    const stretch = mM > 0 ? wM / mM : null;
+    if (wM >= hW && mM >= hM) {
+      if (stretch != null && stretch > stretchLimit) return { key: 'accelerating', stretch, label: 'Accelerating', text: `Passes both, but the weekly multiplier is ${stretch.toFixed(1)}x the monthly. Momentum can keep running, but snapbacks are more likely; consider a smaller position and stick to the exit rule.` };
+      return { key: 'consistent', stretch, label: 'Consistent', text: 'Passes on both time frames at a similar pace. This is the pattern Suresh’s rules look for.' };
+    }
+    if (wM >= hW) return { key: 'hot', stretch, label: 'Hot streak only', text: 'Last year’s surge is not backed by the 5-year record, so there is a higher risk the trend fades.' };
+    if (mM >= hM) return { key: 'slump', stretch, label: 'Long-term winner in a slump', text: 'Strong over 5 years, weak over the last year. Wait for the weekly trend to recover.' };
+    return { key: 'none', stretch, label: 'No trend', text: 'Neither time frame supports buying a call.' };
+  }
+
+  root.OptEngine = { DAY, parsePrices, ratioStats, normCdf, tCdf, tInv, bisect, closedForm, multAtGrowth, analyzeFrame,
+    simulate, blackScholes, impliedVol, confidenceBand, volatilityBand, pattern };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+const EXAMPLE = {"weekly": "Feb 28, 2024\t406.64\nFeb 26, 2024\t407.48\nFeb 19, 2024\t410.34\nFeb 12, 2024\t403.31\nFeb 5, 2024\t419.77\nJan 29, 2024\t410.46\nJan 22, 2024\t403.18\nJan 15, 2024\t397.93\nJan 8, 2024\t387.75\nJan 1, 2024\t367.07\nDec 25, 2023\t375.35\nDec 18, 2023\t373.89\nDec 11, 2023\t370.05\nDec 4, 2023\t373.54\nNov 27, 2023\t373.82\nNov 20, 2023\t376.73\nNov 13, 2023\t368.42\nNov 6, 2023\t368.24\nOct 30, 2023\t351.44\nOct 23, 2023\t328.53\nOct 16, 2023\t325.41\nOct 9, 2023\t326.46\nOct 2, 2023\t325.99\nSep 25, 2023\t314.53\nSep 18, 2023\t315.78\nSep 11, 2023\t328.94\nSep 4, 2023\t332.98\nAug 28, 2023\t327.39\nAug 21, 2023\t321.73\nAug 14, 2023\t314.59\nAug 7, 2023\t319.09\nJul 31, 2023\t325.82\nJul 24, 2023\t336.35\nJul 17, 2023\t341.72\nJul 10, 2023\t343.18\nJul 3, 2023\t335.21\nJun 26, 2023\t338.51\nJun 19, 2023\t333.02\nJun 12, 2023\t340.29\nJun 5, 2023\t324.84\nMay 29, 2023\t333.40\nMay 22, 2023\t330.90\nMay 15, 2023\t315.75\nMay 8, 2023\t306.45\nMay 1, 2023\t308.12\nApr 24, 2023\t304.76\nApr 17, 2023\t283.43\nApr 10, 2023\t283.81\nApr 3, 2023\t289.23\nMar 27, 2023\t285.95\nMar 20, 2023\t278.29\nMar 13, 2023\t277.16\nMar 6, 2023\t246.57", "monthly": "Feb 1, 2024\t406.64\nJan 1, 2024\t396.85\nDec 1, 2023\t375.35\nNov 1, 2023\t378.21\nOct 1, 2023\t336.80\nSep 1, 2023\t314.53\nAug 1, 2023\t326.50\nJul 1, 2023\t333.92\nJun 1, 2023\t338.51\nMay 1, 2023\t326.43\nApr 1, 2023\t304.76\nMar 1, 2023\t285.95\nFeb 1, 2023\t247.39\nJan 1, 2023\t245.18\nDec 1, 2022\t237.27\nNov 1, 2022\t252.43\nOct 1, 2022\t229.02\nSep 1, 2022\t229.78\nAug 1, 2022\t257.97\nJul 1, 2022\t276.40\nJun 1, 2022\t252.85\nMay 1, 2022\t267.66\nApr 1, 2022\t272.59\nMar 1, 2022\t302.83\nFeb 1, 2022\t293.49\nJan 1, 2022\t304.82\nDec 1, 2021\t329.67\nNov 1, 2021\t324.05\nOct 1, 2021\t324.46\nSep 1, 2021\t275.84\nAug 1, 2021\t295.36\nJul 1, 2021\t278.22\nJun 1, 2021\t264.54\nMay 1, 2021\t243.83\nApr 1, 2021\t245.69\nMar 1, 2021\t229.71\nFeb 1, 2021\t226.40\nJan 1, 2021\t225.48\nDec 1, 2020\t216.21\nNov 1, 2020\t208.08\nOct 1, 2020\t196.30\nSep 1, 2020\t203.91\nAug 1, 2020\t218.66\nJul 1, 2020\t198.28\nJun 1, 2020\t196.83\nMay 1, 2020\t177.23\nApr 1, 2020\t172.85\nMar 1, 2020\t152.11\nFeb 1, 2020\t156.25\nJan 1, 2020\t163.74\nDec 1, 2019\t151.69\nNov 1, 2019\t145.61\nOct 1, 2019\t137.43\nSep 1, 2019\t133.28\nAug 1, 2019\t132.15\nJul 1, 2019\t130.20\nJun 1, 2019\t127.98\nMay 1, 2019\t118.17\nApr 1, 2019\t124.31\nMar 1, 2019\t112.26\nFeb 1, 2019\t106.64"};
+(function () {
+'use strict';
+const E = window.OptEngine;
+const $ = id => document.getElementById(id);
+const KEY = 'option-simulator-v1';
+const DEFAULT_RULES = { hW: 10, hM: 5, sL: 3, rN: 70 };
+
+// ---------------- research items ----------------
+const RS = [
+  { g: 'The option contract', id: 'weeks', q: 'Time to expiry (weeks)', w: 'From your expiry date', why: 'More time lets a bad quarter or a market dip recover. Suresh buys the furthest-out LEAPS and will not buy with only about a year left.', auto: true, db: true, score: v => v == null ? null : v >= 78 ? 2 : v >= 52 ? 1 : 0, fmt: v => v + ' weeks' },
+  { g: 'The option contract', id: 'strikePct', q: 'Strike above current price', w: 'From your strike', why: 'His rule of thumb is about 20% above today’s price: reachable in 1.5 to 2 years, but cheap enough for the leverage to work.', auto: true, score: v => v == null ? null : (v >= 0.15 && v <= 0.25) ? 2 : (v >= 0.05 && v <= 0.35) ? 1 : 0, fmt: v => pct(v) },
+  { g: 'The option contract', id: 'spread', q: 'Bid-ask spread', w: 'From bid and ask', why: 'A wide spread is a hidden cost you lose the moment you buy, and again when you sell.', auto: true, score: v => v == null ? null : v <= 0.05 ? 2 : v <= 0.10 ? 1 : 0, fmt: v => pct(v) },
+  { g: 'The option contract', id: 'oiAuto', q: 'Open interest', w: 'From your inputs', why: 'Low open interest means few other traders, so it can be hard to sell at a fair price later.', auto: true, score: v => v == null ? null : v >= 500 ? 2 : v >= 100 ? 1 : 0, fmt: v => v.toLocaleString() },
+  { g: 'The option contract', id: 'ivRatio', q: 'Implied vs historical volatility', w: 'Needs the risk-free rate', why: 'Implied volatility is what the market charges for. Far above the stock’s actual volatility means the option is expensive.', auto: true, score: v => v == null ? null : v <= 1.1 ? 2 : v <= 1.4 ? 1 : 0, fmt: v => v.toFixed(2) + 'x' },
+  { g: 'The option contract', id: 'earn', q: 'Earnings report in the next 2 weeks?', w: 'Yahoo Summary: Earnings Date', why: 'Option prices often swell before earnings and drop right after. Waiting a few days can get a better price.', opts: ['No', 'Yes'], score: v => v === 'No' ? 2 : v === 'Yes' ? 1 : null },
+  { g: 'Business fundamentals', id: 'rev', q: 'Revenue growth, year over year (%)', w: 'Yahoo Statistics: Quarterly Revenue Growth', why: 'A call needs the stock to rise. Growing sales are the most basic fuel for that.', num: true, score: v => v == null ? null : v >= 10 ? 2 : v >= 0 ? 1 : 0 },
+  { g: 'Business fundamentals', id: 'eps', q: 'Earnings growth, year over year (%)', w: 'Yahoo Statistics: Quarterly Earnings Growth', why: 'Over time, stock prices follow earnings.', num: true, score: v => v == null ? null : v >= 10 ? 2 : v >= 0 ? 1 : 0 },
+  { g: 'Business fundamentals', id: 'opm', q: 'Operating margin (%)', w: 'Yahoo Statistics: Operating Margin (ttm)', why: 'High margins signal pricing power and a cushion for a bad stretch. Compare within the same industry.', num: true, score: v => v == null ? null : v >= 20 ? 2 : v >= 10 ? 1 : 0 },
+  { g: 'Business fundamentals', id: 'fcf', q: 'Free cash flow positive?', w: 'Yahoo Statistics: Levered Free Cash Flow', why: 'Companies that generate cash do not need to borrow or issue shares to keep growing.', opts: ['Yes', 'No'], score: v => v === 'Yes' ? 2 : v === 'No' ? 0 : null },
+  { g: 'Business fundamentals', id: 'de', q: 'Total debt / equity (%)', w: 'Yahoo Statistics: Total Debt/Equity', why: 'Heavy debt magnifies bad news. Skip this for banks and insurers.', num: true, score: v => v == null ? null : v <= 100 ? 2 : v <= 200 ? 1 : 0 },
+  { g: 'Business fundamentals', id: 'beats', q: 'Earnings beats, last 4 quarters', w: 'Yahoo Analysis: Earnings History', why: 'A company that keeps beating estimates tends to keep getting upgraded.', opts: ['4', '3', '2', '1', '0'], score: v => v == null || v === '' ? null : +v >= 3 ? 2 : +v === 2 ? 1 : 0 },
+  { g: 'Business fundamentals', id: 'rev90', q: 'Analyst EPS estimates, last 90 days', w: 'Yahoo Analysis: EPS Trend', why: 'Rising estimates mean the business is beating expectations. Falling estimates often come before price drops.', opts: ['Up', 'Flat', 'Down'], score: v => v === 'Up' ? 2 : v === 'Flat' ? 1 : v === 'Down' ? 0 : null },
+  { g: 'Business fundamentals', id: 'guide', q: 'Latest company guidance', w: 'Latest earnings release or call', why: 'A guidance cut is often the start of a longer slide.', opts: ['Raised', 'Maintained', 'Cut'], score: v => v === 'Raised' ? 2 : v === 'Maintained' ? 1 : v === 'Cut' ? 0 : null },
+  { g: 'Valuation and Wall Street', id: 'peg', q: 'PEG ratio (5 yr expected)', w: 'Yahoo Statistics: PEG Ratio', why: 'Price/earnings divided by growth. Under about 1.5 means you are not overpaying for the growth.', num: true, score: v => v == null ? null : v <= 1.5 ? 2 : v <= 2.5 ? 1 : 0 },
+  { g: 'Valuation and Wall Street', id: 'target', q: 'Analyst average price target ($)', w: 'Yahoo Analysis: Analyst Price Targets', why: 'If the average target is above your strike, Wall Street’s own forecast puts the option in the money. Also feeds the growth scenarios.', num: true, score: (v, c) => v == null || !c.S ? null : (c.K && v >= c.K) ? 2 : v >= c.S ? 1 : 0 },
+  { g: 'Valuation and Wall Street', id: 'rating', q: 'Analyst rating (1 Strong Buy to 5 Sell)', w: 'Yahoo Analysis: Recommendation Rating', why: 'A quick read of Wall Street sentiment. Analysts lean bullish, so treat it as a tiebreaker.', num: true, score: v => v == null ? null : v <= 2.0 ? 2 : v <= 2.8 ? 1 : 0 },
+  { g: 'Trend and market', id: 'dma', q: '200-day moving average ($)', w: 'Yahoo Statistics: 200-Day Moving Average', why: 'Calls work best when the stock is already in an uptrend.', num: true, score: (v, c) => v == null || !c.S ? null : c.S >= v ? 2 : c.S >= v * 0.95 ? 1 : 0 },
+  { g: 'Trend and market', id: 'beatSpx', q: 'Beat the S&P 500 over 52 weeks?', w: 'Yahoo Statistics: 52 Week Change', why: 'Stocks that lead the market tend to keep leading for a while.', opts: ['Yes', 'No'], score: v => v === 'Yes' ? 2 : v === 'No' ? 1 : null },
+  { g: 'Trend and market', id: 'spx200', q: 'S&P 500 above its 200-day average?', w: 'Yahoo chart of ^GSPC', why: 'Most stocks fall in a bear market. A call bought into a falling market starts with the wind against it.', opts: ['Yes', 'No'], score: v => v === 'Yes' ? 2 : v === 'No' ? 0 : null },
+  { g: 'Risk check', id: 'cap', q: 'Market cap ($ billions)', w: 'Yahoo Summary: Market Cap', why: 'Suresh sticks to the biggest companies. They have deep option markets and long-dated LEAPS.', num: true, score: v => v == null ? null : v >= 100 ? 2 : v >= 20 ? 1 : 0 },
+  { g: 'Risk check', id: 'short', q: 'Short interest (% of float)', w: 'Yahoo Statistics: Short % of Float', why: 'High short interest means many investors are betting on a fall, and usually a bumpier ride.', num: true, score: v => v == null ? null : v <= 3 ? 2 : v <= 10 ? 1 : 0 },
+  { g: 'Risk check', id: 'flags', q: 'Major red flags right now?', w: 'Yahoo News, press releases', why: 'Investigations, lawsuits, a CEO leaving, accounting questions. The long expiry protects against dips, not permanent damage.', opts: ['None', 'Minor', 'Major'], db: true, score: v => v === 'None' ? 2 : v === 'Minor' ? 1 : v === 'Major' ? 0 : null },
+  { g: 'Risk check', id: 'catalyst', q: 'Clear growth catalyst before expiry?', w: 'Earnings calls, investor days, news', why: 'Something specific that could lift the stock within the option’s life.', opts: ['Yes', 'No'], score: v => v === 'Yes' ? 2 : v === 'No' ? 1 : null },
+];
+const RULES = [
+  { id: 'afford', q: 'Money you can afford to lose completely?', why: 'Options can go to zero. Suresh: only use money you are willing to lose.', db: true },
+  { id: 'exit', q: 'Exit plan: sell a third when it triples?', why: 'Gets your original money back so the rest rides on house money.' },
+  { id: 'limit', q: 'Limit order at or below the midpoint?', why: 'Never use market orders on options.' },
+];
+
+// ---------------- state ----------------
+let state = load() || exampleState();
+function exampleState() {
+  return { ticker: 'MSFT', weekly: EXAMPLE.weekly, monthly: EXAMPLE.monthly, expiry: '2026-01-16', strike: 500, price: 33, bid: '', ask: '', oi: '', rf: 4.69,
+           myGrowth: '', rules: { ...DEFAULT_RULES }, rs: {}, ru: {}, src: {}, live: null, name: '', example: true, seed: 1 };
+}
+function blankState() { return { ticker: '', weekly: '', monthly: '', expiry: '', strike: '', price: '', bid: '', ask: '', oi: '', rf: '', myGrowth: '', rules: { ...(state && state.rules || DEFAULT_RULES) }, rs: {}, ru: {}, src: {}, live: null, name: '', example: false, seed: 1 }; }
+function load() { try { const s = JSON.parse(localStorage.getItem(KEY)); return s && typeof s === 'object' ? { rules: { ...DEFAULT_RULES }, rs: {}, ru: {}, src: {}, live: null, name: '', seed: 1, ...s } : null; } catch (e) { return null; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ } }
+const numOrNull = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
+
+// ---------------- formatting ----------------
+function pct(x, d = 1) { return x == null || !isFinite(x) ? 'n/a' : (x * 100).toFixed(d) + '%'; }
+function money(x, d = 2) { return x == null || !isFinite(x) ? 'n/a' : (x < 0 ? '-$' : '$') + Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+function mult(x) { if (x == null || !isFinite(x)) return 'n/a'; return (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2)) + 'x'; }
+function dateStr(t) { return new Date(t).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }); }
+function monthStr(t) { return new Date(t).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' }); }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const chip = (cls, text) => `<span class="chip ${cls}">${esc(text)}</span>`;
+
+// ---------------- compute ----------------
+let simCache = { key: null, sim: null };
+function compute() {
+  const r = state.rules, c = { rules: r };
+  c.wp = E.parsePrices(state.weekly); c.mp = E.parsePrices(state.monthly);
+  c.ws = E.ratioStats(c.wp, 52); c.ms = E.ratioStats(c.mp, 12);
+  c.S = c.ws ? c.ws.latest : null; c.asof = c.ws ? c.ws.latestT : null;
+  c.K = numOrNull(state.strike); c.P = numOrNull(state.price);
+  c.expiry = state.expiry ? Date.parse(state.expiry + 'T00:00:00Z') : null;
+  c.bid = numOrNull(state.bid); c.ask = numOrNull(state.ask); c.oi = numOrNull(state.oi);
+  c.rf = numOrNull(state.rf); if (c.rf != null) c.rf /= 100;
+  c.missing = [];
+  if (!c.ws || c.ws.n < 10) c.missing.push('weekly prices');
+  if (!c.ms || c.ms.n < 10) c.missing.push('monthly prices');
+  if (!c.expiry) c.missing.push('expiry date');
+  if (!c.K) c.missing.push('strike');
+  if (!c.P) c.missing.push('option price');
+  if (c.S && c.expiry && c.asof) {
+    c.days = (c.expiry - c.asof) / E.DAY; c.weeks = Math.round(c.days / 7); c.months = Math.round(c.days / (365.25 / 12)); c.years = c.days / 365;
+  }
+  const opt = { S: c.S, strike: c.K, price: c.P, expiry: c.expiry, asof: c.asof };
+  if (c.ws && c.S && c.expiry) c.W = E.analyzeFrame(c.wp, 52, opt, r.hW);
+  if (c.ms && c.S && c.expiry) c.M = E.analyzeFrame(c.mp, 12, opt, r.hM);
+  c.wMult = c.W && c.W.cf ? c.W.cf.mult : null; c.mMult = c.M && c.M.cf ? c.M.cf.mult : null;
+  if (c.wMult != null && c.mMult != null) c.pat = E.pattern(c.wMult, c.mMult, r.hW, r.hM, r.sL);
+  if (c.K && c.P) { c.be = c.K + c.P; if (c.S) { c.beMove = c.be / c.S - 1; if (c.years > 0) c.bePerYear = Math.pow(c.be / c.S, 1 / c.years) - 1; } }
+  if (c.W && c.W.cf) {
+    const f = E.multAtGrowth(c.S, c.K, c.P, c.weeks, c.ws.sd, 52);
+    c.need1 = E.bisect(f, -0.9, 20, 1);
+  }
+  if (c.ws && c.S && c.K && c.years > 0 && c.rf != null) {
+    c.bs = E.blackScholes(c.S, c.K, c.years, c.rf, c.ws.vol);
+    if (c.P) { c.iv = E.impliedVol(c.S, c.K, c.years, c.rf, c.P); if (c.iv) c.ivRatio = c.iv / c.ws.vol; }
+  }
+  // simulation for charts (weekly)
+  if (c.W && c.W.cf && c.weeks >= 1 && c.weeks <= 400) {
+    const key = [c.S, c.ws.mean, c.ws.sd, c.weeks, state.seed].join('|');
+    if (simCache.key !== key) simCache = { key, sim: E.simulate(c.S, c.ws.mean, c.ws.sd, c.weeks, 1000, state.seed) };
+    c.sim = simCache.sim;
+    const vals = c.sim.terminal.map(x => Math.max(0, x - c.K));
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const sd = Math.sqrt(vals.reduce((a, b) => a + (b - avg) ** 2, 0) / (vals.length - 1));
+    c.simMult = avg / c.P; c.simNoise = 1.96 * sd / Math.sqrt(vals.length) / c.P; c.simVals = vals;
+  }
+  // research
+  c.auto = {
+    weeks: c.weeks >= 0 ? c.weeks : null, strikePct: (c.K && c.S) ? c.K / c.S - 1 : null,
+    spread: (c.bid != null && c.ask != null && c.bid + c.ask > 0) ? (c.ask - c.bid) / ((c.ask + c.bid) / 2) : null,
+    oiAuto: c.oi, ivRatio: c.ivRatio != null ? c.ivRatio : null,
+  };
+  let pts = 0, answered = 0, dealbreakers = 0;
+  c.rsScores = {};
+  for (const it of RS) {
+    const v = it.auto ? c.auto[it.id] : (it.num ? numOrNull(state.rs[it.id]) : (state.rs[it.id] || null));
+    const s = v == null ? null : it.score(v, c);
+    c.rsScores[it.id] = s;
+    if (s != null) { pts += s; answered++; if (it.db && s === 0) dealbreakers++; }
+  }
+  if (state.ru.afford === 'No') dealbreakers++;
+  c.rsScore = answered ? pts / (2 * answered) : null; c.rsAnswered = answered; c.dealbreakers = dealbreakers;
+  c.rulesDone = RULES.filter(x => state.ru[x.id] === 'Yes').length;
+  c.target = numOrNull(state.rs.target);
+  c.verdict = verdict(c);
+  return c;
+}
+
+function verdict(c) {
+  const r = c.rules;
+  if (busy) return { cls: 'loading', tag: 'Loading', head: `Getting ${busy} from Yahoo Finance...`, sub: 'Price history, the option chain and the research numbers. This takes a few seconds.' };
+  if (liveError) return { cls: 'bad', tag: 'Could not load', head: liveError, sub: 'Check the ticker and try again, or paste the Yahoo tables on the left by hand.' };
+  if (c.missing.length) return { cls: 'neutral', tag: 'Setup', head: 'Add ' + c.missing.join(', ') + ' to get a verdict.', sub: 'Everything you enter is on the left. The example button loads a complete MSFT case.' };
+  if (!(c.weeks >= 1)) return { cls: 'bad', tag: 'Update the option', head: 'The expiry date is on or before the latest price date.', sub: 'Pick a future expiry from the option chain.' };
+  if (c.dealbreakers > 0) return { cls: 'bad', tag: 'Pass', head: 'Pass on it: a deal-breaker is flagged in the research.', sub: 'Too little time to expiry, a major red flag, or money you cannot afford to lose.' };
+  if (c.wMult < r.hW) {
+    if (c.mMult >= r.hM) return { cls: 'warn', tag: 'Pass for now', head: `Watch it: weekly ${mult(c.wMult)} is below your ${r.hW}x hurdle, but the 5-year trend passes.`, sub: 'Revisit when the weekly trend recovers.' };
+    return { cls: 'bad', tag: 'Pass', head: `Pass on it: the weekly multiplier is ${mult(c.wMult)}, below your ${r.hW}x hurdle.`, sub: 'Suresh does not buy below the hurdle.' };
+  }
+  if (c.rsAnswered < 12) return { cls: 'warn', tag: 'Research needed', head: `The model passes at ${mult(c.wMult)} weekly. Finish the research: ${c.rsAnswered} of 24 answered.`, sub: 'Answer at least 12 scorecard items for a full verdict.' };
+  const need = r.rN / 100;
+  if (c.mMult >= r.hM && c.rsScore >= need) {
+    const stretched = c.pat && c.pat.key === 'accelerating';
+    return { cls: stretched ? 'warn' : 'good', tag: 'Meets your rules', head: 'A candidate to buy with a limit order' + (stretched ? ', in a smaller size.' : '.'), sub: (c.rulesDone < 3 ? 'Finish the three-item checklist at the bottom first. ' : '') + (stretched ? 'Last year ran far ahead of the 5-year pace.' : '') };
+  }
+  const why = [];
+  if (c.mMult < r.hM) why.push(`the 5-year check is ${mult(c.mMult)}, below ${r.hM}x`);
+  if (c.rsScore < need) why.push(`research scores ${pct(c.rsScore, 0)}, below ${r.rN}%`);
+  return { cls: 'warn', tag: 'Watchlist', head: 'Watchlist: ' + why.join('; ') + '.', sub: 'The weekly model passes, but not every rule does.' };
+}
+
+// ---------------- render: summary ----------------
+function renderSummary(c) {
+  const v = c.verdict, el = $('verdict');
+  el.className = 'verdict ' + v.cls;
+  $('vTag').textContent = v.tag; $('vHead').textContent = v.head;
+  $('vSub').textContent = (state.example && !busy && !liveError ? 'Example: MSFT on Feb 28, 2024, the Jan 16, 2026 $500 call at $33. ' : '') + (v.sub || '');
+  const r = c.rules;
+  const pass = (x, h) => x == null ? '' : x >= h ? chip('good', `Passes ${h}x`) : chip('bad', `Below ${h}x`);
+  const cb = c.W && E.confidenceBand(c.W.confidence);
+  const tiles = [
+    { label: 'Weekly multiplier (1 yr)', big: mult(c.wMult), foot: pass(c.wMult, r.hW) },
+    { label: 'Monthly multiplier (5 yr)', big: mult(c.mMult), foot: pass(c.mMult, r.hM) },
+    { label: 'Pattern', big: c.pat ? `<span style="font-family:var(--font-ui);font-size:17px;line-height:1.3;display:block">${esc(c.pat.label)}</span>` : 'n/a', foot: c.pat && c.pat.stretch != null ? `Stretch ${mult(c.pat.stretch)}, limit ${r.sL}x` : '' },
+    { label: 'Confidence (weekly)', big: c.W && c.W.cf ? pct(c.W.confidence, 0) : 'n/a', foot: cb ? chip(cb.key === 'weak' || cb.key === 'below' ? 'warn' : 'good', cb.label.split(' (')[0]) + (c.M && c.M.cf ? ` Monthly ${pct(c.M.confidence, 0)}` : '') : '' },
+    { label: 'Break-even at expiry', big: c.be ? money(c.be) : 'n/a', foot: c.beMove != null ? `${c.beMove >= 0 ? '+' : ''}${pct(c.beMove, 0)} needed, ${pct(c.bePerYear)}/yr` : '' },
+    { label: 'Research score', big: c.rsScore != null ? pct(c.rsScore, 0) : 'n/a', foot: `${c.rsAnswered} of 24 answered` + (c.dealbreakers ? ' ' + chip('bad', 'Deal-breaker') : '') },
+  ];
+  $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="label">${t.label}</div><div class="big">${t.big}</div><div class="foot">${t.foot}</div></div>`).join('');
+}
+
+// ---------------- render: inputs status ----------------
+function renderInputStatus(c) {
+  const st = (s, p, unit) => !p.length ? '<span class="hint">Nothing pasted yet.</span>' : !s ? chip('bad', 'Need at least 3 prices') :
+    `${chip(s.n >= 10 ? 'good' : 'warn', `${s.n} ${unit} ratios`)} <span class="hint">${dateStr(s.oldestT)} to ${dateStr(s.latestT)}, latest ${money(s.latest)}</span>`;
+  $('wStatus').innerHTML = st(c.ws, c.wp, 'weekly');
+  $('mStatus').innerHTML = st(c.ms, c.mp, 'monthly') + (c.ms && c.ms.n < 55 && c.ms.n >= 10 ? ' ' + chip('warn', 'Under 5 years') : '');
+  const t = (state.ticker || '').trim().toUpperCase();
+  $('yLinks').innerHTML = t ? `<a href="https://finance.yahoo.com/quote/${encodeURIComponent(t)}/history/" target="_blank" rel="noopener">${esc(t)} price history on Yahoo</a><a href="https://finance.yahoo.com/quote/${encodeURIComponent(t)}/options/" target="_blank" rel="noopener">${esc(t)} option chain</a><a href="https://finance.yahoo.com/quote/${encodeURIComponent(t)}/key-statistics/" target="_blank" rel="noopener">${esc(t)} statistics</a>` : '<span class="hint">Enter a ticker at the top for direct Yahoo links.</span>';
+  $('strikeHint').textContent = c.S ? `Suresh's rule: a strike about 20% above today's ${money(c.S)}, so around ${money(Math.round(c.S * 1.2), 0)}. Pick the nearest listed strike.` : '';
+}
+
+// ---------------- charts ----------------
+function svgEl(w, h, inner, label) { return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}">${inner}</svg>`; }
+function niceTicks(lo, hi, n) {
+  const span = hi - lo, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0))), err = step0 / mag;
+  const step = (err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1) * mag;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10)); return out;
+}
+function renderFan(c) {
+  const box = $('fanChart');
+  if (!c.sim || !c.wp.length) { box.innerHTML = '<p class="hint">Add weekly prices, an expiry, strike and price to see the paths.</p>'; return; }
+  const W = Math.max(320, Math.round(box.clientWidth || 760)), narrow = W < 560, H = narrow ? 260 : 340, m = { l: narrow ? 46 : 58, r: narrow ? 88 : 96, t: 14, b: 30 };
+  const hist = c.wp.slice().reverse();
+  const asof = c.asof, step = 7 * E.DAY;
+  const fut = c.sim.bands.map((b, k) => ({ t: asof + k * step, b }));
+  const tMin = hist[0].t, tMax = fut[fut.length - 1].t;
+  let yMin = Math.min(...hist.map(d => d.p), ...fut.map(d => d.b[0]), c.K), yMax = Math.max(...hist.map(d => d.p), ...fut.map(d => d.b[4]), c.be || 0);
+  const logScale = yMax / Math.max(yMin, 1e-9) > 6;
+  yMin = Math.max(yMin * 0.92, 0.01); yMax *= 1.06;
+  const x = t => m.l + (t - tMin) / (tMax - tMin) * (W - m.l - m.r);
+  const y = logScale ? v => m.t + (Math.log(yMax) - Math.log(Math.max(v, yMin))) / (Math.log(yMax) - Math.log(yMin)) * (H - m.t - m.b)
+                     : v => m.t + (yMax - v) / (yMax - yMin) * (H - m.t - m.b);
+  const ticks = logScale ? [1, 2, 3, 5].flatMap(a => [0.1, 1, 10, 100, 1000, 10000].map(p => a * p)).filter(v => v >= yMin && v <= yMax).sort((a, b) => a - b) : niceTicks(yMin, yMax, 5);
+  let g = '';
+  for (const v of ticks) g += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${money(v, v < 10 ? 2 : 0)}</text>`;
+  // x ticks: quarters
+  const d0 = new Date(tMin); let tk = Date.UTC(d0.getUTCFullYear(), Math.ceil((d0.getUTCMonth() + 1) / 3) * 3, 1);
+  const pxPerMonth = (W - m.l - m.r) / ((tMax - tMin) / E.DAY / 30.44); const every = [3, 6, 12, 24].find(k => k * pxPerMonth >= 72) || 24;
+  for (; tk <= tMax; tk = Date.UTC(new Date(tk).getUTCFullYear(), new Date(tk).getUTCMonth() + every, 1))
+    g += `<text class="lbl" x="${x(tk)}" y="${H - 8}" text-anchor="middle">${monthStr(tk)}</text>`;
+  const area = (lo, hi) => fut.map((d, i) => `${i ? 'L' : 'M'}${x(d.t).toFixed(1)},${y(d.b[hi]).toFixed(1)}`).join('') + fut.slice().reverse().map(d => `L${x(d.t).toFixed(1)},${y(d.b[lo]).toFixed(1)}`).join('') + 'Z';
+  g += `<path class="band-out" d="${area(0, 4)}"/><path class="band-in" d="${area(1, 3)}"/>`;
+  g += `<path class="median" d="${fut.map((d, i) => `${i ? 'L' : 'M'}${x(d.t).toFixed(1)},${y(d.b[2]).toFixed(1)}`).join('')}"/>`;
+  g += `<path class="hist" d="${hist.map((d, i) => `${i ? 'L' : 'M'}${x(d.t).toFixed(1)},${y(d.p).toFixed(1)}`).join('')}"/>`;
+  g += `<line class="baseline" x1="${x(asof)}" x2="${x(asof)}" y1="${m.t}" y2="${H - m.b}"/><text class="lbl" x="${x(asof) + 4}" y="${m.t + 10}">Today</text>`;
+  g += `<line class="baseline" x1="${x(tMax)}" x2="${x(tMax)}" y1="${m.t}" y2="${H - m.b}"/><text class="lbl" x="${x(tMax) - 4}" y="${m.t + 10}" text-anchor="end">Expiry</text>`;
+  const refs = [{ v: c.K, cls: '', t: 'Strike ' + money(c.K, 0) }, { v: c.be, cls: 'be', t: 'Break-even ' + money(c.be, 0) }];
+  if (Math.abs(y(refs[0].v) - y(refs[1].v)) < 14) { refs[0].dy = 10; refs[1].dy = -4; }
+  for (const rf of refs) g += `<line class="ref ${rf.cls}" x1="${m.l}" x2="${W - m.r}" y1="${y(rf.v)}" y2="${y(rf.v)}"/><text class="ref-lbl ${rf.cls}" x="${W - m.r + 6}" y="${y(rf.v) + (rf.dy || 4)}">${rf.t}</text>`;
+  g += `<circle cx="${x(hist[hist.length - 1].t)}" cy="${y(hist[hist.length - 1].p)}" r="4" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/>`;
+  g += `<line class="cross" id="fanCross" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="display:none"/><rect id="fanHit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/>`;
+  box.innerHTML = svgEl(W, H, g, 'Weekly price history and simulated price paths to expiry') + '<div class="tip" id="fanTip"></div>' + (logScale ? '<p class="hint">Log scale: the paths spread too widely for a straight scale.</p>' : '');
+  const svg = box.querySelector('svg'), tip = $('fanTip'), cross = $('fanCross');
+  const pts = hist.map(d => ({ t: d.t, html: `<b>${dateStr(d.t)}</b><br>Price ${money(d.p)}` })).concat(fut.slice(1).map((d, k) => ({ t: d.t, html: `<b>Week ${k + 1}, ${dateStr(d.t)}</b><br>Median ${money(d.b[2])}<br>Middle half ${money(d.b[1], 0)} to ${money(d.b[3], 0)}<br>80% of paths ${money(d.b[0], 0)} to ${money(d.b[4], 0)}` })));
+  $('fanHit').addEventListener('pointermove', ev => {
+    const rect = svg.getBoundingClientRect(), px = (ev.clientX - rect.left) / rect.width * W;
+    const t = tMin + (px - m.l) / (W - m.l - m.r) * (tMax - tMin);
+    let best = pts[0]; for (const p of pts) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+    const cx = x(best.t); cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.style.display = '';
+    tip.innerHTML = best.html; tip.style.display = 'block';
+    const left = cx / W * rect.width; tip.style.left = Math.min(left + 12, rect.width - tip.offsetWidth - 4) + 'px'; tip.style.top = '10px';
+  });
+  $('fanHit').addEventListener('pointerleave', () => { tip.style.display = 'none'; cross.style.display = 'none'; });
+}
+
+function renderHist(c) {
+  const box = $('histChart');
+  if (!c.simVals) { box.innerHTML = '<p class="hint">Appears once the model can run.</p>'; $('histLede').textContent = ''; return; }
+  const vals = c.simVals, n = vals.length, zero = vals.filter(v => v <= 0).length;
+  const pos = vals.filter(v => v > 0).sort((a, b) => a - b);
+  const cap = pos.length ? pos[Math.min(pos.length - 1, Math.floor(pos.length * 0.97))] : c.P * 2;
+  const nb = 22, w = Math.max(cap, c.P * 1.2) / nb;
+  const bins = Array.from({ length: nb }, (_, i) => ({ lo: i * w, hi: (i + 1) * w, k: 0 }));
+  for (const v of pos) bins[Math.min(nb - 1, Math.floor(v / w))].k++;
+  const W = Math.max(320, Math.round(box.clientWidth || 760)), H = W < 560 ? 200 : 230, m = { l: 46, r: 16, t: 30, b: 34 };
+  const maxK = Math.max(zero, ...bins.map(b => b.k));
+  const bw = (W - m.l - m.r) / (nb + 1.5);
+  const y = k => m.t + (1 - k / maxK) * (H - m.t - m.b);
+  let g = '';
+  for (const v of niceTicks(0, maxK / n, 4)) g += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(v * n)}" y2="${y(v * n)}"/><text class="lbl" x="${m.l - 6}" y="${y(v * n) + 4}" text-anchor="end">${pct(v, 0)}</text>`;
+  const bars = [{ lo: 0, hi: 0, k: zero, zero: true }].concat(bins);
+  bars.forEach((b, i) => {
+    const bx = m.l + (i === 0 ? 0 : (i + 0.5)) * bw, hgt = H - m.b - y(b.k);
+    const label = b.zero ? `Worthless at expiry: ${pct(b.k / n)} of paths` : `${money(b.lo, 0)} to ${money(b.hi, 0)}${i === nb ? ' and up' : ''}: ${pct(b.k / n)} of paths`;
+    g += `<rect class="bar${b.zero ? ' zero' : ''}" x="${(bx + 1).toFixed(1)}" y="${(H - m.b - Math.max(hgt, b.k ? 2 : 0)).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${Math.max(hgt, b.k ? 2 : 0).toFixed(1)}" rx="2" data-tip="${esc(label)}"/>`;
+  });
+  g += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+  g += `<text class="lbl" x="${m.l + bw / 2}" y="${H - m.b + 14}" text-anchor="middle">$0</text>`;
+  const vx = v => m.l + 1.5 * bw + Math.min(v, nb * w) / w * bw;
+  for (const v of niceTicks(0, nb * w, W < 560 ? 3 : 5)) if (v > 0) g += `<text class="lbl" x="${vx(v)}" y="${H - m.b + 14}" text-anchor="middle">${money(v, 0)}</text>`;
+  const avg = c.W.cf.ev;
+  const marks = [{ v: c.P, cls: 'be', t: 'You pay ' + money(c.P) }, { v: avg, cls: '', t: 'Exact average ' + money(avg, 0) }];
+  marks.forEach((mk, i) => { const xx = vx(mk.v); g += `<line class="ref ${mk.cls}" x1="${xx}" x2="${xx}" y1="${m.t - 6}" y2="${H - m.b}"/><text class="ref-lbl ${mk.cls}" x="${Math.min(xx + 4, W - 140)}" y="${m.t - 10 + i * 12}">${mk.t}${mk.v > nb * w ? ' (off chart)' : ''}</text>`; });
+  box.innerHTML = svgEl(W, H, g, 'Distribution of option value at expiry across simulated paths') + '<div class="tip" id="histTip"></div>';
+  const tip = $('histTip'), svg = box.querySelector('svg');
+  svg.querySelectorAll('rect.bar').forEach(r => {
+    r.addEventListener('pointerenter', () => { tip.textContent = r.dataset.tip; tip.style.display = 'block'; });
+    r.addEventListener('pointermove', ev => { const rect = box.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - rect.left + 12, rect.width - tip.offsetWidth - 4) + 'px'; tip.style.top = (ev.clientY - rect.top - 36) + 'px'; });
+    r.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+  });
+  $('histLede').innerHTML = `Each bar is the share of 1,000 simulated paths ending in that value range. ${pct(zero / n, 0)} of paths end worthless. This run averages ${mult(c.simMult)} (the exact figure is ${mult(c.wMult)}; one run can land about ±${mult(c.simNoise)} away). <button class="btn small" id="rerun" type="button">Run a new simulation</button>`;
+  $('rerun').addEventListener('click', () => { state.seed = (state.seed || 1) + 1; save(); render(); });
+}
+
+// ---------------- render: analysis cards ----------------
+function meter(value, segs, scaleLabels, maxV) {
+  const parts = segs.map(s => `<span style="background:${s.c}; width:${(s.to - s.from) / maxV * 100}%"></span>`).join('');
+  const pos = Math.max(0, Math.min(1, value / maxV)) * 100;
+  return `<div class="meter-wrap"><div class="meter" style="display:flex">${parts}</div><div class="marker" style="left:${pos}%"></div></div><div class="meter-scale">${scaleLabels.map(s => `<span>${s}</span>`).join('')}</div>`;
+}
+function renderConfidence(c) {
+  const box = $('confBody');
+  if (!c.W || !c.W.cf) { box.innerHTML = '<p class="hint">Appears once the model can run.</p>'; return; }
+  const segs = [{ from: 0, to: 50, c: 'var(--bad-bg)' }, { from: 50, to: 70, c: 'var(--warn-bg)' }, { from: 70, to: 85, c: 'color-mix(in srgb, var(--good-bg) 60%, var(--warn-bg))' }, { from: 85, to: 95, c: 'var(--good-bg)' }, { from: 95, to: 100, c: 'color-mix(in srgb, var(--good) 35%, var(--good-bg))' }];
+  const frame = (name, F, h) => {
+    if (!F || !F.cf) return '';
+    const b = E.confidenceBand(F.confidence), vb = E.volatilityBand(F.st.vol);
+    const sig = F.pHurdle < 0.05;
+    return `<div class="frame"><div class="frame-h"><b>${name}</b><span>${chip(b.key === 'below' ? 'bad' : b.key === 'weak' ? 'warn' : 'good', b.label)}</span></div>
+      <div class="row-k"><span class="k">Confidence the ${h}x hurdle is truly met</span><span class="num">${pct(F.confidence, 0)}</span></div>
+      ${meter(F.confidence * 100, segs, ['0%', '50%', '70%', '85%', '100%'], 100)}
+      <p class="desc">${esc(b.text)}</p>
+      <div class="row-k" style="margin-top:8px">
+        <span class="k">Uptrend real? (p-value ${F.pUp.toFixed(3)})</span><span>${F.pUp < 0.05 ? chip('good', 'Yes') : chip('warn', 'Not proven')}</span>
+        <span class="k">Significant at 5%? (hurdle p-value ${F.pHurdle.toFixed(3)})</span><span>${sig ? chip('good', 'Yes') : chip('plain', 'No')}</span>
+        <span class="k">True trend, 95% range</span><span class="num">${pct(F.trendLo, 0)} to ${pct(F.trendHi, 0)}/yr</span>
+        <span class="k">Multiplier across that range</span><span class="num">${mult(F.multLo)} to ${mult(F.multHi)}</span>
+      </div>
+      <div class="row-k" style="margin-top:10px"><span class="k">Volatility ${pct(F.st.vol, 0)} per year</span><span>${chip(vb.key === 'low' ? 'good' : vb.key === 'moderate' ? 'plain' : 'warn', vb.label)}</span></div>
+      ${meter(Math.min(F.st.vol * 100, 120), [{ from: 0, to: 25, c: 'var(--good-bg)' }, { from: 25, to: 45, c: 'var(--neutral-bg)' }, { from: 45, to: 80, c: 'var(--warn-bg)' }, { from: 80, to: 120, c: 'var(--bad-bg)' }], ['0%', '25%', '45%', '80%', '120%+'], 120)}
+      <p class="desc">${esc(vb.text)}</p></div>`;
+  };
+  box.innerHTML = frame('Weekly, last year', c.W, c.rules.hW) + frame('Monthly, last 5 years', c.M, c.rules.hM) +
+    '<p class="hint" style="margin-top:8px">Aim for 70% or more on both. Few trades reach 95%; that is why Suresh uses a 10x safety factor. Confidence measures the past trend, not whether it continues: that is the research’s job.</p>';
+}
+function renderWM(c) {
+  const box = $('wmBody');
+  if (!c.W || !c.W.cf || !c.M || !c.M.cf) { box.innerHTML = '<p class="hint">Needs both weekly and monthly prices.</p>'; return; }
+  const r = c.rules, p = c.pat;
+  const pc = p.key === 'consistent' ? 'good' : p.key === 'none' ? 'bad' : 'warn';
+  box.innerHTML = `<div class="scroll"><table><thead><tr><th>Measure</th><th class="n">Weekly (1 yr)</th><th class="n">Monthly (5 yr)</th></tr></thead><tbody>
+    <tr><td>Trend per year</td><td class="n">${pct(c.ws.trend)}</td><td class="n">${pct(c.ms.trend)}</td></tr>
+    <tr><td>Volatility per year</td><td class="n">${pct(c.ws.vol)}</td><td class="n">${pct(c.ms.vol)}</td></tr>
+    <tr><td>Multiplier (exact)</td><td class="n"><b>${mult(c.wMult)}</b></td><td class="n"><b>${mult(c.mMult)}</b></td></tr>
+    <tr><td>Your hurdle</td><td class="n">${r.hW}x ${c.wMult >= r.hW ? chip('good', 'Pass') : chip('bad', 'Fail')}</td><td class="n">${r.hM}x ${c.mMult >= r.hM ? chip('good', 'Pass') : chip('bad', 'Fail')}</td></tr>
+    <tr><td>Chance stock ends above strike</td><td class="n">${pct(c.W.cf.pAbove, 0)}</td><td class="n">${pct(c.M.cf.pAbove, 0)}</td></tr>
+    <tr><td>Chance of profit at expiry</td><td class="n">${pct(c.W.cf.pProfit, 0)}</td><td class="n">${pct(c.M.cf.pProfit, 0)}</td></tr>
+    <tr><td>Median value at expiry</td><td class="n">${money(c.W.cf.median, 0)}</td><td class="n">${money(c.M.cf.median, 0)}</td></tr>
+    </tbody></table></div>
+    <div class="frame" style="margin-top:6px"><div class="frame-h"><b>Stretch ${mult(p.stretch)}</b><span>${chip(pc, p.label)}</span></div>
+    <p class="desc">${esc(p.text)}</p>
+    <p class="hint">Stretch is the weekly multiplier divided by the monthly. Near 1x means steady growth for years; above your ${r.sL}x limit means last year ran far ahead of its long-run pace.</p></div>`;
+}
+function renderBE(c) {
+  const box = $('beBody');
+  if (!c.be || !c.S || !(c.years > 0)) { box.innerHTML = '<p class="hint">Needs prices, an expiry, strike and price.</p>'; return; }
+  const g = req => !req ? 'n/a' : req.above ? 'over 2,000%/yr' : req.below ? 'any trend' : pct(req.value) + '/yr';
+  box.innerHTML = `<div class="row-k">
+    <span class="k">Break-even price at expiry (strike + price)</span><span class="num"><b>${money(c.be)}</b></span>
+    <span class="k">Stock move needed by expiry</span><span class="num">${c.beMove >= 0 ? '+' : ''}${pct(c.beMove)}</span>
+    <span class="k"><b>Growth needed per year to break even</b></span><span class="num"><b>${pct(c.bePerYear)}</b></span>
+    <span class="k">Growth for 1x (average value equals price)</span><span class="num">${g(c.need1)}</span>
+    <span class="k">Growth for your monthly hurdle (${c.rules.hM}x)</span><span class="num">${c.M ? g(c.M.reqGrowth) : 'n/a'}</span>
+    <span class="k">Growth for your weekly hurdle (${c.rules.hW}x)</span><span class="num">${c.W ? g(c.W.reqGrowth) : 'n/a'}</span></div>
+    <p class="desc">The 1x figure is lower than break-even because a few big winners pull the average up even though most paths lose. If the growth your research supports is well above the weekly-hurdle figure, the rules have room to spare.</p>`;
+}
+function renderScenarios(c) {
+  const box = $('scBody');
+  if (!c.W || !c.W.cf) { box.innerHTML = '<p class="hint">Appears once the model can run.</p>'; return; }
+  const f = g => E.closedForm(c.S, c.K, c.P, c.weeks, Math.pow(1 + g, 1 / 52), c.ws.sd);
+  const my = numOrNull(state.myGrowth);
+  const rows = [
+    ['Last year repeats (weekly)', c.ws.trend], ['5-year pace repeats (monthly)', c.ms ? c.ms.trend : null], ['No trend (risk-free rate)', c.rf],
+    ['Analysts’ average target comes true', c.target ? c.target / c.S - 1 : null], ['Half the analyst view', c.target ? (c.target / c.S - 1) / 2 : null], ['Your estimate', my != null ? my / 100 : null],
+  ];
+  box.innerHTML = `<table><thead><tr><th>Scenario</th><th class="n">Growth/yr</th><th class="n">Multiplier</th><th class="n">Chance of profit</th><th class="n">Expected profit per contract</th></tr></thead><tbody>${rows.map(([lab, g]) => {
+    if (g == null || !(g > -1)) return `<tr><td>${lab}</td><td class="n hint" colspan="4">${lab.startsWith('Analyst') || lab.startsWith('Half') ? 'Add the analyst target in the research' : lab.startsWith('No trend') ? 'Add the risk-free rate' : lab.startsWith('Your') ? 'Enter your estimate above' : 'n/a'}</td></tr>`;
+    const r = f(g); const prof = (r.ev - c.P) * 100;
+    return `<tr><td>${lab}</td><td class="n">${pct(g)}</td><td class="n"><b>${mult(r.mult)}</b></td><td class="n">${pct(r.pProfit, 0)}</td><td class="n" style="color:${prof >= 0 ? 'var(--good)' : 'var(--bad)'}">${prof >= 0 ? '+' : ''}${money(prof, 0)}</td></tr>`;
+  }).join('')}</tbody></table><p class="hint">Same math as the simulation with the weekly volatility. One contract is 100 shares.</p>`;
+}
+function renderBS(c) {
+  const box = $('bsBody');
+  if (c.bs == null) { box.innerHTML = '<p class="hint">Add the risk-free rate (and an expiry, strike and prices) to see the fair price.</p>'; return; }
+  const ratio = c.ivRatio;
+  const ivNote = ratio == null ? '' : ratio <= 1.1 ? chip('good', 'Fairly priced volatility') : ratio <= 1.4 ? chip('warn', 'A bit expensive') : chip('bad', 'Expensive');
+  box.innerHTML = `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    <div class="tile"><div class="label">Fair value, no trend</div><div class="big">${money(c.bs)}</div><div class="foot">vs your ${money(c.P)}</div></div>
+    <div class="tile"><div class="label">Market-neutral multiplier</div><div class="big">${mult(c.bs / c.P)}</div><div class="foot">Near 1x: fair unless the trend continues</div></div>
+    <div class="tile"><div class="label">Implied volatility you pay</div><div class="big">${c.iv ? pct(c.iv) : 'n/a'}</div><div class="foot">Stock's own: ${pct(c.ws.vol)}/yr</div></div>
+    <div class="tile"><div class="label">Implied / historical</div><div class="big">${ratio ? ratio.toFixed(2) + 'x' : 'n/a'}</div><div class="foot">${ivNote}</div></div></div>`;
+}
+
+// ---------------- research ----------------
+function scoreChip(s) { return s == null ? '<span class="chip plain score">n/a</span>' : s === 2 ? '<span class="chip good score">2</span>' : s === 1 ? '<span class="chip warn score">1</span>' : '<span class="chip bad score">0</span>'; }
+function buildResearch() {
+  const groups = {};
+  RS.forEach(it => (groups[it.g] = groups[it.g] || []).push(it));
+  const col = (names) => names.map(g => `<div class="rs-group"><h3>${g}</h3>${groups[g].map(it => `<div class="rs-item">
+      <div><div class="q">${esc(it.q)}<span class="src" id="src-${it.id}" hidden>Yahoo</span>${it.db ? ' <span class="db">deal-breaker if red</span>' : ''}</div><div class="w">${esc(it.w)}</div><details><summary>Why it matters</summary>${esc(it.why)}</details></div>
+      <div>${it.auto ? `<div class="auto" id="rsv-${it.id}"></div>` : it.opts ? `<select id="rs-${it.id}" aria-label="${esc(it.q)}"><option value="">Choose</option>${it.opts.map(o => `<option>${o}</option>`).join('')}</select>` : `<input type="number" step="any" id="rs-${it.id}" aria-label="${esc(it.q)}">`}</div>
+      <div id="rss-${it.id}"></div></div>`).join('')}</div>`).join('');
+  const rulesHtml = `<div class="rs-group"><h3>Your rules before you buy</h3>${RULES.map(it => `<div class="rs-item"><div><div class="q">${esc(it.q)}${it.db ? ' <span class="db">deal-breaker if No</span>' : ''}</div><div class="w">${esc(it.why)}</div></div><div><select id="ru-${it.id}" aria-label="${esc(it.q)}"><option value="">Choose</option><option>Yes</option><option>No</option></select></div><div id="rus-${it.id}"></div></div>`).join('')}</div>`;
+  $('rsGroups').innerHTML = `<div>${col(['The option contract', 'Business fundamentals'])}</div><div>${col(['Valuation and Wall Street', 'Trend and market', 'Risk check'])}${rulesHtml}</div>`;
+  RS.filter(it => !it.auto).forEach(it => { const el = $('rs-' + it.id); el.addEventListener(it.opts ? 'change' : 'input', () => { state.rs[it.id] = el.value; delete state.src[it.id]; save(); render(); }); });
+  RULES.forEach(it => { const el = $('ru-' + it.id); el.addEventListener('change', () => { state.ru[it.id] = el.value; save(); render(); }); });
+}
+function renderResearch(c) {
+  RS.forEach(it => {
+    if (it.auto) { const v = c.auto[it.id]; $('rsv-' + it.id).textContent = v == null ? (it.id === 'ivRatio' ? 'needs rate' : 'n/a') : it.fmt(v); }
+    $('rss-' + it.id).innerHTML = scoreChip(c.rsScores[it.id]);
+    const sEl = $('src-' + it.id); if (sEl) sEl.hidden = !(state.src && state.src[it.id]);
+  });
+  RULES.forEach(it => { const v = state.ru[it.id]; $('rus-' + it.id).innerHTML = v === 'Yes' ? '<span class="chip good score">Yes</span>' : v === 'No' ? `<span class="chip ${it.db ? 'bad' : 'warn'} score">No</span>` : '<span class="chip plain score">n/a</span>'; });
+  const need = c.rules.rN;
+  $('rsSummary').innerHTML = `<b class="num">${c.rsScore != null ? pct(c.rsScore, 0) : 'n/a'}</b><div class="rs-bar" aria-hidden="true"><span style="width:${(c.rsScore || 0) * 100}%"></span></div>
+    <span>${c.rsAnswered} of 24 answered${c.rsAnswered < 12 ? ' (12 needed)' : ''}</span><span>Strong research: ${need}% or more</span>${c.dealbreakers ? chip('bad', c.dealbreakers + ' deal-breaker' + (c.dealbreakers > 1 ? 's' : '')) : ''}<span>Checklist ${c.rulesDone} of 3</span>`;
+}
+
+// ---------------- live data (when served with the api/stock function) ----------------
+let LIVE = false, busy = null, liveError = null;
+async function getJSON(url) {
+  let r;
+  try { r = await fetch(url, { cache: 'no-store' }); } catch (e) { throw new Error('Could not reach the data server. Check your connection.'); }
+  let j = null; try { j = await r.json(); } catch (e) { /* not JSON */ }
+  if (!r.ok || !j || j.error) throw new Error((j && j.error) || `The data server answered with error ${r.status}.`);
+  return j;
+}
+async function probe() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  try { const j = await getJSON('api/stock?ping=1'); LIVE = !!j.ok; } catch (e) { LIVE = false; }
+  if (LIVE) render();
+}
+function priceOf(row) {
+  if (!row) return { price: null, priceSource: null };
+  if (row.bid > 0 && row.ask > 0) return { price: Math.round((row.bid + row.ask) / 2 * 100) / 100, priceSource: 'midpoint' };
+  if (row.last > 0) return { price: row.last, priceSource: 'last trade' };
+  return { price: null, priceSource: null };
+}
+function applyPick(p, expiry) {
+  if (expiry) state.expiry = expiry;
+  if (!p) { Object.assign(state, { strike: '', price: '', bid: '', ask: '', oi: '' }); if (state.live) state.live.priceSource = null; return; }
+  Object.assign(state, { strike: p.strike, bid: p.bid || '', ask: p.ask || '', oi: p.oi, price: p.price == null ? '' : p.price });
+  if (state.live) state.live.priceSource = p.priceSource;
+}
+async function fetchStock(t) {
+  busy = t; liveError = null; render();
+  try {
+    const j = await getJSON('api/stock?ticker=' + encodeURIComponent(t));
+    state = { ...blankState(), ticker: j.ticker, name: j.name, weekly: j.weekly, monthly: j.monthly,
+      live: { fetchedAt: j.fetchedAt, expiries: j.expiries || [], chain: j.chain || [], priceSource: null, rfSource: j.rf ? j.rf.source : null, nextEarnings: j.nextEarnings || null, warnings: Object.keys(j.warnings || {}) } };
+    if (j.rf) state.rf = j.rf.value;
+    applyPick(j.pick, j.expiry);
+    for (const [k, v] of Object.entries(j.research || {})) { state.rs[k] = String(v); state.src[k] = true; }
+    save(); syncInputs();
+  } catch (e) { liveError = e.message; }
+  busy = null; render();
+}
+async function changeExpiry(exp) {
+  busy = state.ticker; liveError = null; render();
+  try {
+    const S = E.parsePrices(state.weekly)[0];
+    const j = await getJSON(`api/stock?ticker=${encodeURIComponent(state.ticker)}&expiry=${encodeURIComponent(exp)}${S ? '&price=' + S.p : ''}`);
+    state.live.chain = j.chain || []; applyPick(j.pick, j.expiry); save(); syncInputs();
+  } catch (e) { liveError = e.message; }
+  busy = null; render();
+}
+const WHAT = { weekly: 'weekly prices', monthly: 'monthly prices', expiries: 'option dates', chain: 'option chain', info: 'key statistics', calendar: 'earnings date', hist: 'earnings history', trend: 'EPS trend', spx: 'S&P 500 trend', rf: 'Treasury yield' };
+function renderLive(c) {
+  $('livePill').hidden = !LIVE;
+  $('goBtn').textContent = LIVE ? 'Get data' : 'Set up';
+  const L = state.live;
+  $('inLede').textContent = LIVE
+    ? (L && state.ticker ? `${state.name || state.ticker}: filled in from Yahoo Finance at ${new Date(L.fetchedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}. Change anything you like. Click Get data again to refresh.` : 'Type a ticker at the top and click Get data. Prices, the option chain and most research numbers fill in automatically.')
+    : 'Open Yahoo Finance with the links below and paste the tables.';
+  const show = !!(L && L.expiries && L.expiries.length);
+  $('chainPick').hidden = !show;
+  if (!show) return;
+  const exps = L.expiries.slice().sort();
+  const furthestJan = exps.filter(e => e.slice(5, 7) === '01').pop();
+  $('expSel').innerHTML = exps.map(e => `<option value="${e}"${e === state.expiry ? ' selected' : ''}>${dateStr(Date.parse(e + 'T00:00:00Z'))}${e === furthestJan ? ' (furthest January)' : ''}</option>`).join('');
+  if (!exps.includes(state.expiry)) $('expSel').insertAdjacentHTML('afterbegin', '<option selected value="">Typed in by hand</option>');
+  const k = +state.strike;
+  $('strikeSel').innerHTML = (L.chain || []).map(r => `<option value="${r.strike}"${r.strike === k ? ' selected' : ''}>${money(r.strike, r.strike % 1 ? 2 : 0)}${c.S ? ` (${r.strike >= c.S ? '+' : ''}${pct(r.strike / c.S - 1, 0)})` : ''}, bid ${r.bid.toFixed(2)}, ask ${r.ask.toFixed(2)}, OI ${r.oi.toLocaleString()}</option>`).join('');
+  if (!(L.chain || []).some(r => r.strike === k)) $('strikeSel').insertAdjacentHTML('afterbegin', '<option selected value="">Typed in by hand</option>');
+  const notes = ['Starts on Suresh’s picks: the furthest January expiry and the strike nearest 20% above the price.'];
+  if (L.priceSource === 'midpoint') notes.push('Price is the bid-ask midpoint, where a limit order would go.');
+  if (L.priceSource === 'last trade') notes.push('The market is not quoting bid and ask right now (it may be closed), so the price is the last trade. Check it again during market hours.');
+  if (L.rfSource) notes.push(`Risk-free rate: ${L.rfSource}.`);
+  if (L.warnings && L.warnings.length) notes.push(`Yahoo did not return the ${L.warnings.map(w => WHAT[w] || w).join(', ')}. Fill those in by hand if needed.`);
+  $('chainNote').textContent = notes.join(' ');
+}
+$('expSel').addEventListener('change', () => { if ($('expSel').value) changeExpiry($('expSel').value); });
+$('strikeSel').addEventListener('change', () => {
+  const row = (state.live && state.live.chain || []).find(r => String(r.strike) === $('strikeSel').value);
+  if (!row) return;
+  applyPick({ ...row, ...priceOf(row) }); state.example = false; save(); syncInputs(); render();
+});
+
+// ---------------- wiring ----------------
+const FIELDS = ['weekly', 'monthly', 'expiry', 'strike', 'price', 'bid', 'ask', 'oi', 'rf', 'myGrowth'];
+function syncInputs() {
+  $('ticker').value = state.ticker || '';
+  FIELDS.forEach(f => { $(f).value = state[f] == null ? '' : state[f]; });
+  ['hW', 'hM', 'sL', 'rN'].forEach(f => { $(f).value = state.rules[f]; });
+  RS.filter(it => !it.auto).forEach(it => { $('rs-' + it.id).value = state.rs[it.id] || ''; });
+  RULES.forEach(it => { $('ru-' + it.id).value = state.ru[it.id] || ''; });
+}
+let timer = null;
+FIELDS.forEach(f => $(f).addEventListener('input', () => {
+  state[f] = $(f).value; state.example = false; liveError = null; save();
+  clearTimeout(timer); timer = setTimeout(render, f === 'weekly' || f === 'monthly' ? 250 : 60);
+}));
+['hW', 'hM', 'sL', 'rN'].forEach(f => $(f).addEventListener('input', () => { const v = numOrNull($(f).value); if (v != null && v > 0) { state.rules[f] = v; save(); render(); } }));
+$('searchForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const t = $('ticker').value.trim().toUpperCase(); if (!t) return;
+  if (LIVE) { fetchStock(t); return; }
+  if (t !== (state.ticker || '').toUpperCase()) { state = { ...blankState(), ticker: t }; syncInputs(); }
+  state.ticker = t; save(); render(); $('weekly').focus();
+});
+$('loadExample').addEventListener('click', () => { liveError = null; state = exampleState(); save(); syncInputs(); render(); });
+$('clearAll').addEventListener('click', () => { liveError = null; state = blankState(); save(); syncInputs(); render(); $('ticker').focus(); });
+
+function render() {
+  const c = compute();
+  renderSummary(c); renderInputStatus(c); renderLive(c); renderFan(c); renderHist(c); renderConfidence(c); renderWM(c); renderBE(c); renderScenarios(c); renderBS(c); renderResearch(c);
+  document.title = (state.ticker ? state.ticker.toUpperCase() + ' · ' : '') + 'Option Simulator';
+  $('goBtn').disabled = !!busy;
+}
+buildResearch(); syncInputs(); render(); probe();
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
+})();
+</script>
+</body>
+</html>
