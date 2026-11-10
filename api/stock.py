@@ -204,6 +204,17 @@ def _latest_close(df):
     return (s.index[-1].date(), float(s.iloc[-1])) if len(s) else None
 
 
+def _quote(symbol):
+    """(date, price) right now. Yahoo leaves today's close empty in its price tables, so use the live quote."""
+    t = yf.Ticker(symbol)
+    df = t.history(period='5d', interval='1d', auto_adjust=False, actions=False)
+    meta = getattr(t, 'history_metadata', None) or {}
+    p, ts = _num(meta.get('regularMarketPrice')), _num(meta.get('regularMarketTime'))
+    if p and ts:
+        return dt.datetime.fromtimestamp(ts - 5 * 3600, dt.timezone.utc).date(), p  # New York trading date
+    return _latest_close(df)
+
+
 def _add_latest(lines, latest, monthly=False):
     """Yahoo sometimes leaves out the current week (or month). Add today's close as its own row when missing."""
     if not lines or not latest:
@@ -232,7 +243,7 @@ def get_stock(symbol):
     jobs = {
         'weekly': lambda: _history(symbol, '1y', '1wk'),
         'monthly': lambda: _history(symbol, '5y', '1mo'),
-        'daily': lambda: _history(symbol, '5d', '1d'),
+        'daily': lambda: _quote(symbol),
         'expiries': lambda: list(yf.Ticker(symbol).options),
         'info': lambda: yf.Ticker(symbol).info,
         'calendar': lambda: yf.Ticker(symbol).calendar,
@@ -251,7 +262,7 @@ def get_stock(symbol):
                 res[k] = None
                 errors[k] = str(e)[:200]
 
-    latest = _latest_close(res.get('daily'))
+    latest = res.get('daily')
     weekly = _add_latest(_history_lines(res['weekly']), latest)
     monthly = _add_latest(_history_lines(res['monthly']), latest, monthly=True)
     if not weekly:
